@@ -1,0 +1,17 @@
+[package]
+name = "app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ca-checker"
+path = "src/main.rs"
+
+[dependencies]
+base64.workspace = true
+cert_core.workspace = true
+cert_infra.workspace = true
+chrono.workspace = true
+gpui.workspace = true

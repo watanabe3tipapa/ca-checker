@@ -1,0 +1,19 @@
+[package]
+name = "cert_core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+x509-parser.workspace = true
+rustls-webpki.workspace = true
+rustls-pki-types.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+time.workspace = true

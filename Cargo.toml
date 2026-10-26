@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/cert_core",
+    "crates/cert_infra",
+    "crates/cert_cli",
+    "crates/app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+x509-parser = "0.18.1"
+rustls-webpki = { version = "0.103.16", features = ["ring"] }
+rustls-pki-types = "1.12"
+rustls-native-certs = "0.8.5"
+sha2 = "0.10"
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+gpui = "=0.2.2"
+
+cert_core = { path = "crates/cert_core" }
+cert_infra = { path = "crates/cert_infra" }
+
+rcgen = "0.14"
+time = "0.3"
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"

@@ -1,0 +1,11 @@
+[package]
+name = "cert_infra"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+cert_core.workspace = true
+rustls-native-certs.workspace = true
+thiserror.workspace = true
