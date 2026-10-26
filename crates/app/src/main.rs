@@ -8,8 +8,8 @@ use gpui::{
 use state::AppState;
 
 impl Render for AppState {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.render_root(cx)
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_root(window, cx)
     }
 }
 

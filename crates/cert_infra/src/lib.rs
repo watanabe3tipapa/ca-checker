@@ -1,11 +1,19 @@
+pub mod config;
 pub mod file_loader;
 pub mod network;
+pub mod notify;
 pub mod os_store;
+pub mod revocation;
 
 use std::path::PathBuf;
 
+pub use config::{
+    AppConfig, ConfigError, NotificationConfig, RevocationConfig, RevocationMode, config_path,
+};
 pub use file_loader::{ScanResult, load_directory, load_file, load_path};
+pub use notify::{NotificationSummary, notify_summary, send_desktop_notification};
 pub use os_store::{OsStoreResult, load_os_store};
+pub use revocation::{RevocationCache, RevocationCheck, check_revocation};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InfraError {
@@ -23,6 +31,12 @@ pub enum InfraError {
     NativeStore(String),
     #[error("network certificate fetching is not implemented yet")]
     NetworkUnsupported,
+    #[error("network request failed: {0}")]
+    Network(String),
+    #[error("revocation check failed: {0}")]
+    Revocation(String),
+    #[error("desktop notification failed: {0}")]
+    Notification(String),
 }
 
 pub fn trust_anchors_der(certificates: &[cert_core::Certificate]) -> Vec<Vec<u8>> {

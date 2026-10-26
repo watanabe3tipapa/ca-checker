@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -19,15 +19,26 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-x509-parser = "0.18.1"
+x509-parser = { version = "0.18.1", features = ["verify"] }
 rustls-webpki = { version = "0.103.16", features = ["ring"] }
 rustls-pki-types = "1.12"
 rustls-native-certs = "0.8.5"
-sha2 = "0.10"
+sha1 = "0.10"
+sha2 = { version = "0.10", features = ["oid"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"
-gpui = "=0.2.2"
+gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
+gpui-terminal = "0.1"
+portable-pty = "0.9"
+parking_lot = "0.12"
+notify-rust = "4"
+toml = "0.9"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+x509-ocsp = { version = "0.2", features = ["builder", "std"] }
+x509-cert = "0.2"
+der = { version = "0.7", features = ["std"] }
+ring = "0.17"
 
 cert_core = { path = "crates/cert_core" }
 cert_infra = { path = "crates/cert_infra" }

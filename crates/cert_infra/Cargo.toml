@@ -7,5 +7,14 @@ license.workspace = true
 
 [dependencies]
 cert_core.workspace = true
+chrono.workspace = true
+notify-rust.workspace = true
 rustls-native-certs.workspace = true
+serde.workspace = true
 thiserror.workspace = true
+toml.workspace = true
+ureq.workspace = true
+x509-parser.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
