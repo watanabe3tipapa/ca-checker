@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "既存のタグ（例: v0.1.1）"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build macOS binaries (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x86_64
+          - runner: macos-15
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify version and tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          crate_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+          if [ "$version" != "v$crate_version" ]; then
+            echo "VERSION ($version) does not match Cargo.toml (v$crate_version)" >&2
+            exit 1
+          fi
+          if [ "$TAG" != "$version" ]; then
+            echo "Tag ($TAG) does not match VERSION ($version)" >&2
+            exit 1
+          fi
+
+      - name: Build release binaries
+        run: cargo build --release --locked -p app -p cert_cli
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          name="ca-checker-${version}-macos-${{ matrix.arch }}"
+          mkdir -p "dist/${name}"
+          cp target/release/ca-checker target/release/cert-cli "dist/${name}/"
+          cp README.md LICENSE VERSION "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          shasum -a 256 "dist/${name}.tar.gz" | sed "s|dist/||" > "dist/${name}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.arch }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+          pattern: "*"
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --generate-notes \
+              --verify-tag
+          fi

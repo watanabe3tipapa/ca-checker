@@ -175,7 +175,9 @@ cargo build -p app
 │   └── index.html               # GitHub Pages ランディングページ
 └── .github/
     └── workflows/
-        └── pages.yml            # Pages デプロイ
+        ├── ci.yml                # CI
+        ├── pages.yml             # Pages デプロイ
+        └── release.yml           # リリース
 ```
 
 ## 開発
@@ -192,6 +194,32 @@ cargo test --workspace
 ```
 
 テストでは `rcgen` を用いてルート CA・中間 CA・リーフ証明書を動的に生成し、正常系・期限切れ・未信頼ルート・自己署名・弱署名を検証しています。
+
+## リリース
+
+`v*` 形式のタグを push すると、`.github/workflows/release.yml` が macOS 向けのバイナリをビルドし、GitHub Release に添付します。
+
+1. `VERSION`、`Cargo.toml` の `[workspace.package] version`、`Cargo.lock` を同じバージョンに更新します。
+2. 変更をコミットし、`main` に push します。
+3. バージョンに対応するタグを作成して push します。
+
+```sh
+git tag v0.1.2
+git push origin v0.1.2
+```
+
+リリースには次のファイルが添付されます。
+
+- `ca-checker-vX.Y.Z-macos-x86_64.tar.gz`（Intel Mac）
+- `ca-checker-vX.Y.Z-macos-aarch64.tar.gz`（Apple Silicon）
+- 各アーカイブの `.sha256` チェックサム
+
+アーカイブには `ca-checker`（GUI）、`cert-cli`（CLI）、`README.md`、`LICENSE`、`VERSION` が含まれます。
+
+Actions の **Release** → **Run workflow** から既存のタグを指定すると、バイナリを再ビルドしてリリースに再添付できます。リリース本文は GitHub の自動生成ノートを使います。
+
+> [!NOTE]
+> 配布するバイナリはコード署名と公証（notarization）を行っていません。macOS で初回起動時に警告が表示された場合は、Finder でアプリを右クリックして **開く** を選ぶか、利用者自身の判断で quarantine 属性を解除してください。
 
 ## 現在の制限
 
