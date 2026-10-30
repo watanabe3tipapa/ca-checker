@@ -193,15 +193,6 @@ cargo test --workspace
 
 テストでは `rcgen` を用いてルート CA・中間 CA・リーフ証明書を動的に生成し、正常系・期限切れ・未信頼ルート・自己署名・弱署名を検証しています。
 
-## ランディングページ / GitHub Pages
-
-`docs/index.html` は本プロジェクトのランディングページです。GitHub Actions（`.github/workflows/pages.yml`）で GitHub Pages に自動デプロイします。
-
-初回のみ、リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定してください。以降は `main` ブランチへの push で自動的に公開されます（手動実行は Actions タブの `workflow_dispatch`）。
-
-- 公開 URL: [https://watanabe3tipapa.github.io/ca-checker/](https://watanabe3tipapa.github.io/ca-checker/)
-- デプロイ対象: `docs/`
-
 ## 現在の制限
 
 - `fetch` はサーバーが提示したチェーンを取得するのみで、その場では検証しない（`verify` で明示的に検証してください）
