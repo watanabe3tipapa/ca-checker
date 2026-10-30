@@ -1,11 +1,12 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use cert_core::{Certificate, ValidationStatus};
+use chrono::Utc;
 use gpui::{
-    AnyElement, App, Context, FontWeight, Hsla, IntoElement, Window, div, prelude::*, px, rgb,
-    uniform_list,
+    AnyElement, App, Context, FontWeight, Hsla, IntoElement, Window, div, prelude::*, px, relative,
+    rgb, uniform_list,
 };
 
-use crate::state::{AppState, CertRow, Filter, View};
+use crate::state::{AppState, CertRow, Counts, ExpiryBucket, Filter, IssuerCount, View};
 
 const BG: u32 = 0xffffff;
 const FG: u32 = 0x0b0b0b;
@@ -60,7 +61,11 @@ impl AppState {
                             .font_weight(FontWeight::BOLD)
                             .child("ca-checker"),
                     )
-                    .child(meta_tag(format!("v0.1.0 · {} certs", self.rows.len()))),
+                    .child(meta_tag(format!(
+                        "v{} · {} certs",
+                        env!("CARGO_PKG_VERSION"),
+                        self.rows.len()
+                    ))),
             )
             .child(
                 div()
@@ -132,7 +137,10 @@ impl AppState {
 
     fn render_dashboard(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let counts = self.counts();
+        let (expiry_buckets, expiring_beyond) = self.expiry_buckets(Utc::now(), self.warn_days);
+        let issuers = self.top_issuers(5);
         let entity = cx.entity();
+        let row_entity = entity.clone();
         let indices = self.filtered_indices();
         let item_count = indices.len();
 
@@ -143,7 +151,7 @@ impl AppState {
                 range
                     .map(|position| {
                         let row_index = indices[position];
-                        render_row(position, &this.rows[row_index], entity.clone())
+                        render_row(position, &this.rows[row_index], row_entity.clone())
                     })
                     .collect::<Vec<_>>()
             }),
@@ -174,6 +182,23 @@ impl AppState {
                             .child(stat_card("Expired", counts.expired, rgb(0xff6b6b).into()))
                             .child(stat_card("Issues", counts.issues, rgb(0xff8fab).into()))
                             .child(stat_card("CA", counts.ca, rgb(0xc8b6ff).into())),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(status_distribution_panel(
+                                &counts,
+                                self.filter,
+                                entity.clone(),
+                            ))
+                            .child(expiry_timeline_panel(
+                                &expiry_buckets,
+                                expiring_beyond,
+                                self.warn_days,
+                            ))
+                            .child(issuer_distribution_panel(&issuers)),
                     )
                     .child(
                         div()
@@ -630,6 +655,290 @@ fn stat_card(label: &'static str, value: usize, color: Hsla) -> impl IntoElement
                 .text_color(rgb(FG))
                 .child(label),
         )
+}
+
+fn overview_panel(
+    title: &'static str,
+    subtitle: String,
+    body: impl IntoElement,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .flex_1()
+        .min_w(px(300.))
+        .p_3()
+        .border_3()
+        .border_color(rgb(FG))
+        .rounded_xs()
+        .bg(rgb(BG))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(
+                    div()
+                        .font_family(MONO_FONT)
+                        .text_xs()
+                        .font_weight(FontWeight::BOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .font_family(MONO_FONT)
+                        .text_size(px(9.))
+                        .text_color(rgb(MUTED_TEXT))
+                        .child(subtitle),
+                ),
+        )
+        .child(body)
+}
+
+fn status_distribution_panel(
+    counts: &Counts,
+    active: Filter,
+    entity: gpui::Entity<AppState>,
+) -> impl IntoElement {
+    let total = counts.total.max(1) as f32;
+    let other_issues = counts.issues.saturating_sub(counts.expired);
+    let segments = [
+        (Filter::Valid, counts.valid, 0x8ef0cf),
+        (Filter::Expiring, counts.expiring, 0xffc857),
+        (Filter::Expired, counts.expired, 0xff6b6b),
+        (Filter::OtherIssues, other_issues, 0xff8fab),
+    ];
+
+    let bar = div()
+        .flex()
+        .w_full()
+        .h(px(30.))
+        .border_2()
+        .border_color(rgb(FG))
+        .rounded_xs()
+        .overflow_hidden()
+        .bg(rgb(MUTED))
+        .children(segments.into_iter().filter(|(_, count, _)| *count > 0).map(
+            |(filter, count, color)| {
+                let entity = entity.clone();
+                div()
+                    .id(("status-segment", filter as usize))
+                    .h_full()
+                    .w(relative(count as f32 / total))
+                    .bg(rgb(color))
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.filter = filter;
+                            cx.notify();
+                        });
+                    })
+            },
+        ));
+
+    let legend = div().flex().flex_wrap().gap_2().children(
+        [
+            (Filter::Valid, "Valid", counts.valid, 0x8ef0cf),
+            (Filter::Expiring, "Expiring", counts.expiring, 0xffc857),
+            (Filter::Expired, "Expired", counts.expired, 0xff6b6b),
+            (Filter::OtherIssues, "Other", other_issues, 0xff8fab),
+        ]
+        .into_iter()
+        .map(|(filter, label, count, color)| {
+            let entity = entity.clone();
+            let selected = active == filter;
+            div()
+                .id(("status-legend", filter as usize))
+                .flex()
+                .items_center()
+                .gap_1()
+                .px_2()
+                .py_1()
+                .border_2()
+                .border_color(rgb(FG))
+                .rounded_xs()
+                .bg(if selected { rgb(ACCENT) } else { rgb(BG) })
+                .cursor_pointer()
+                .hover(|this| this.bg(rgb(ACCENT)))
+                .child(
+                    div()
+                        .w(px(10.))
+                        .h(px(10.))
+                        .flex_none()
+                        .border_2()
+                        .border_color(rgb(FG))
+                        .bg(rgb(color)),
+                )
+                .child(
+                    div()
+                        .font_family(MONO_FONT)
+                        .text_xs()
+                        .font_weight(FontWeight::BOLD)
+                        .child(format!("{label} {count}")),
+                )
+                .on_click(move |_, _, cx| {
+                    entity.update(cx, |this, cx| {
+                        this.filter = filter;
+                        cx.notify();
+                    });
+                })
+        }),
+    );
+
+    overview_panel(
+        "STATUS DISTRIBUTION",
+        format!("{} certificates", counts.total),
+        div().flex().flex_col().gap_2().child(bar).child(legend),
+    )
+}
+
+fn expiry_timeline_panel(
+    buckets: &[ExpiryBucket],
+    beyond: usize,
+    warn_days: i64,
+) -> impl IntoElement {
+    let max = buckets.iter().map(|b| b.count).max().unwrap_or(0).max(1);
+    let bars = div()
+        .flex()
+        .items_end()
+        .gap_1()
+        .h(px(72.))
+        .children(buckets.iter().map(|bucket| {
+            let height = if bucket.count == 0 {
+                3.0
+            } else {
+                (bucket.count as f32 / max as f32 * 52.0).max(6.0)
+            };
+            let color = if bucket.count == 0 {
+                MUTED
+            } else if bucket.urgent {
+                0xffc857
+            } else {
+                0x8ef0cf
+            };
+            div()
+                .flex_1()
+                .h_full()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_end()
+                .gap_1()
+                .child(
+                    div()
+                        .w_full()
+                        .h(px(height))
+                        .bg(rgb(color))
+                        .border_2()
+                        .border_color(rgb(FG)),
+                )
+                .child(
+                    div()
+                        .font_family(MONO_FONT)
+                        .text_size(px(9.))
+                        .text_color(rgb(MUTED_TEXT))
+                        .truncate()
+                        .child(bucket.label.clone()),
+                )
+        }));
+
+    let range = match (buckets.first(), buckets.last()) {
+        (Some(first), Some(last)) => {
+            format!(
+                "{} {} – {} {}",
+                first.label, first.year, last.label, last.year
+            )
+        }
+        _ => "Next 12 months".to_string(),
+    };
+
+    let footer = if beyond == 0 {
+        format!("No expiries beyond 12 months · warn {warn_days}d")
+    } else {
+        format!("{beyond} beyond 12 months · warn {warn_days}d")
+    };
+
+    overview_panel(
+        "EXPIRY TIMELINE",
+        range,
+        div().flex().flex_col().gap_2().child(bars).child(
+            div()
+                .font_family(MONO_FONT)
+                .text_size(px(9.))
+                .text_color(rgb(MUTED_TEXT))
+                .child(footer),
+        ),
+    )
+}
+
+fn issuer_distribution_panel(items: &[IssuerCount]) -> impl IntoElement {
+    let max = items
+        .iter()
+        .map(|item| item.count)
+        .max()
+        .unwrap_or(0)
+        .max(1);
+
+    let body: AnyElement = if items.is_empty() {
+        div()
+            .font_family(MONO_FONT)
+            .text_xs()
+            .text_color(rgb(MUTED_TEXT))
+            .child("No issuers loaded")
+            .into_any_element()
+    } else {
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .children(items.iter().map(|item| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_0p5()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .text_xs()
+                                    .truncate()
+                                    .child(item.issuer.clone()),
+                            )
+                            .child(
+                                div()
+                                    .font_family(MONO_FONT)
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(item.count.to_string()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .h(px(8.))
+                            .border_2()
+                            .border_color(rgb(FG))
+                            .bg(rgb(MUTED))
+                            .child(
+                                div()
+                                    .h_full()
+                                    .w(relative(item.count as f32 / max as f32))
+                                    .bg(rgb(ACCENT)),
+                            ),
+                    )
+            }))
+            .into_any_element()
+    };
+
+    overview_panel("TOP ISSUERS", "By certificate count".to_string(), body)
 }
 
 fn render_row(position: usize, row: &CertRow, entity: gpui::Entity<AppState>) -> AnyElement {

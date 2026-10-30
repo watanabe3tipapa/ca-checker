@@ -5,7 +5,7 @@
 ca-checker は、OS の信頼ストアにある **X.509 証明書**を、有効期限・署名アルゴリズム・信頼チェーンから検証する GPUI 製デスクトップダッシュボード兼 CLI ツールです。ルート CA の状態を一覧し、期限切れや弱い署名、未信頼の証明書をひと目で見つけられます。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v0.1.0-blue.svg)](https://github.com/watanabe3tipapa/ca-checker/releases)
+[![Version](https://img.shields.io/badge/version-v0.1.1-blue.svg)](https://github.com/watanabe3tipapa/ca-checker/releases)
 [![Rust](https://img.shields.io/badge/Rust-1.85%2B-000000.svg?logo=rust)](https://www.rust-lang.org/)
 [![GPUI](https://img.shields.io/badge/GPUI-0.2.2-00e5a8.svg)](https://crates.io/crates/gpui)
 [![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-site-00e5a8.svg)](https://watanabe3tipapa.github.io/ca-checker/)
@@ -36,9 +36,11 @@ ca-checker は、OS の信頼ストアを読み込み、証明書ごとの状態
 
 - OS の信頼ストア（macOS Keychain / Linux のネイティブストア）を読み込み
 - PEM / DER 形式の証明書ファイルと、再帰的なディレクトリスキャンに対応
+- TLS ハンドシェイクでリモートサーバーが提示する証明書チェーンを取得（`fetch`）
 - `rustls-webpki` によるルート・中間・リーフのチェーン検証
 - 有効期限、期限間近、弱い署名アルゴリズム（MD5 / SHA-1）の検出
 - GPUI によるブルータリズム調のダッシュボード UI
+- 状態分布・期限タイムライン・発行者分布の統計パネル（クリックでフィルタ）
 - 状態サマリー、ステータスフィルタ、証明書一覧、詳細、PEM 表示
 - 期限警告日数の設定（7 / 30 / 90 / 180 日）
 - CLI による一覧・詳細・検証・スキャンと JSON 出力
@@ -49,9 +51,11 @@ ca-checker は、OS の信頼ストアを読み込み、証明書ごとの状態
 | 機能 | GUI | CLI | 説明 |
 |---|---|---|---|
 | OS 信頼ストアの一覧 | 対応 | `list-os` | 読み込んだ証明書とパースエラーを表示 |
+| 統計の可視化 | 対応 | — | 状態分布・期限タイムライン・発行者分布を表示 |
 | 証明書ファイルの詳細 | — | `inspect` | Subject / Issuer / SAN / アルゴリズム / SHA-256 を表示 |
-| チェーン検証 | 対応 | `verify` | ルート・中間・リーフを検証し、状態とメッセージを出力 |
+| チェーン検証 | 対応 | `verify` | ルート・中間・リーフを検証。`--host` でリモート取得にも対応 |
 | ディレクトリスキャン | — | `scan` | `.pem` / `.crt` / `.cer` / `.der` を再帰的に読み込み |
+| ネットワーク証明書取得 | — | `fetch` | TLS ハンドシェイクで提示された証明書チェーンを取得 |
 | JSON 出力 | — | 対応 | 一覧・詳細・検証結果を JSON で出力 |
 | 期限警告の変更 | 対応 | `--warn-days` | 期限間近と判定する日数を変更 |
 | 証明書の PEM 表示 | 対応 | — | 詳細画面で PEM を表示 |
@@ -71,49 +75,26 @@ ca-checker は、OS の信頼ストアを読み込み、証明書ごとの状態
 | `RevocationUnknown` | 失効状態が不明（将来対応） | いいえ |
 | `Error` | その他の検証エラー | いいえ |
 
+## 統計と可視化
+
+ダッシュボードには **状態分布**（クリックでフィルタ）、**期限タイムライン**（今後 12 か月）、**発行者分布**（上位 5 件）を表示します。色はステータスバッジと共通で、GPUI のネイティブ要素だけで描画します。詳細と設計意図は [USAGE.md の統計パネル](USAGE.md#統計パネル) を参照してください。
+
+ランディングページでは、同じ内容を Mermaid で図解しています。図の構成は [oh-my-mermaid](https://github.com/oh-my-mermaid/oh-my-mermaid) の「関心ごとに Mermaid で説明する」アプローチを参考にしています。
+
 ## 使い方
 
-### GUI
-
 ```sh
+# GUI
 cargo run -p app
-```
 
-起動すると OS の信頼ストアを読み込み、ダッシュボードを表示します。行を選択すると詳細画面へ移動し、`Settings` で期限警告日数を変更できます。
-
-### CLI
-
-```sh
-# OS 信頼ストアの証明書一覧
+# CLI: OS 信頼ストアの一覧
 cargo run -p cert_cli -- list-os
-cargo run -p cert_cli -- list-os --json
 
-# 証明書ファイルの詳細表示
-cargo run -p cert_cli -- inspect certificate.pem
-cargo run -p cert_cli -- inspect certificate.der --json
-
-# 証明書チェーンの検証
-cargo run -p cert_cli -- verify leaf.pem \
-  --chain intermediate.pem \
-  --trust root.pem
-
-# OS 信頼ストアをルートとして検証
-cargo run -p cert_cli -- verify leaf.pem --chain intermediate.pem
-
-# ディレクトリ内の証明書を再帰スキャン
-cargo run -p cert_cli -- scan /path/to/certs
-cargo run -p cert_cli -- scan /path/to/certs --json
+# CLI: リモートサーバーのチェーンを検証
+cargo run -p cert_cli -- verify --host example.com
 ```
 
-ビルド済みバイナリは `target/debug/cert-cli` に生成されます。
-
-### `verify` の終了コード
-
-| コード | 意味 |
-|---|---|
-| `0` | 検証成功（Valid / ExpiringSoon） |
-| `1` | 検証失敗（期限切れ・未信頼など） |
-| `2` | 実行エラー（ファイル読込失敗など） |
+GUI の操作、全 CLI コマンド、`verify` の処理フロー、ネットワーク検証、統計パネル、JSON 出力の仕様は **[USAGE.md](USAGE.md)** にまとめています。
 
 ## 動作環境
 
@@ -148,8 +129,9 @@ cargo build -p app
 ```text
 .
 ├── README.md                    # このファイル（日本語）
+├── USAGE.md                     # 使い方と技術的な解説
 ├── LICENSE                      # MIT ライセンス
-├── VERSION                      # リポジトリのバージョン（v0.1.0）
+├── VERSION                      # リポジトリのバージョン（v0.1.1）
 ├── Cargo.toml                   # Cargo workspace
 ├── Cargo.lock                   # 再現可能なビルド用
 ├── crates/
@@ -201,7 +183,7 @@ cargo test --workspace
 
 ## 現在の制限
 
-- ネットワーク経由の証明書取得（TLS ハンドシェイク）は未実装
+- `fetch` はサーバーが提示したチェーンを取得するのみで、その場では検証しない（`verify` で明示的に検証してください）
 - GUI からのファイルインポート / ドラッグ＆ドロップは未実装（ファイル検証は CLI を使用）
 - CRL / OCSP による失効確認は未実装
 - Windows は未対応
@@ -212,6 +194,7 @@ cargo test --workspace
 - [gpui](https://crates.io/crates/gpui) — GUI
 - [x509-parser](https://crates.io/crates/x509-parser) — X.509 パース
 - [rustls-webpki](https://crates.io/crates/rustls-webpki) — チェーン検証
+- [rustls](https://crates.io/crates/rustls) — TLS ハンドシェイクによる証明書取得
 - [rustls-native-certs](https://crates.io/crates/rustls-native-certs) — OS 信頼ストア
 - [clap](https://crates.io/crates/clap) — CLI
 - [serde](https://crates.io/crates/serde) / [serde_json](https://crates.io/crates/serde_json) — JSON 出力

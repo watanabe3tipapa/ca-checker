@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use cert_core::{Certificate, ChainValidationResult, ValidationOptions, validate};
-use cert_infra::{load_directory, load_file, load_os_store, trust_anchors_der};
+use cert_infra::{fetch_chain, load_directory, load_file, load_os_store, trust_anchors_der};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -24,7 +24,12 @@ enum Command {
         json: bool,
     },
     Verify {
-        path: PathBuf,
+        #[arg(required_unless_present = "host", conflicts_with = "host")]
+        path: Option<PathBuf>,
+        #[arg(long, value_name = "HOST", conflicts_with = "path")]
+        host: Option<String>,
+        #[arg(long, default_value_t = 443, requires = "host")]
+        port: u16,
         #[arg(long = "chain")]
         chain: Vec<PathBuf>,
         #[arg(long = "trust")]
@@ -39,6 +44,18 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    Fetch {
+        host: String,
+        #[arg(long, default_value_t = 443)]
+        port: u16,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+enum VerifyTarget {
+    File(PathBuf),
+    Network { host: String, port: u16 },
 }
 
 fn main() -> ExitCode {
@@ -62,12 +79,22 @@ fn run(cli: Cli) -> anyhow::Result<u8> {
         Command::Inspect { path, json } => inspect(&path, json),
         Command::Verify {
             path,
+            host,
+            port,
             chain,
             trust,
             warn_days,
             json,
-        } => verify(&path, &chain, &trust, warn_days, json),
+        } => {
+            let target = match (path, host) {
+                (Some(path), None) => VerifyTarget::File(path),
+                (None, Some(host)) => VerifyTarget::Network { host, port },
+                _ => anyhow::bail!("specify exactly one of a certificate path or --host"),
+            };
+            verify(target, &chain, &trust, warn_days, json)
+        }
         Command::Scan { dir, json } => scan(&dir, json),
+        Command::Fetch { host, port, json } => fetch(&host, port, json),
     }
 }
 
@@ -106,15 +133,24 @@ fn inspect(path: &Path, json: bool) -> anyhow::Result<u8> {
 }
 
 fn verify(
-    path: &Path,
+    target: VerifyTarget,
     chain_paths: &[PathBuf],
     trust_paths: &[PathBuf],
     warn_days: i64,
     json: bool,
 ) -> anyhow::Result<u8> {
-    let mut certificates = load_file(path)?;
-    let target = certificates.remove(0);
-    let mut intermediates = certificates;
+    let (target, mut intermediates) = match target {
+        VerifyTarget::File(path) => {
+            let mut certificates = load_file(&path)?;
+            let target = certificates.remove(0);
+            (target, certificates)
+        }
+        VerifyTarget::Network { host, port } => {
+            let mut certificates = fetch_chain(&host, port)?.certificates;
+            let target = certificates.remove(0);
+            (target, certificates)
+        }
+    };
 
     for chain_path in chain_paths {
         intermediates.extend(load_file(chain_path)?);
@@ -165,6 +201,24 @@ fn scan(dir: &Path, json: bool) -> anyhow::Result<u8> {
         }
         for error in &result.errors {
             eprintln!("warning: {error}");
+        }
+    }
+    Ok(0)
+}
+
+fn fetch(host: &str, port: u16, json: bool) -> anyhow::Result<u8> {
+    let chain = fetch_chain(host, port)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&chain.certificates)?);
+    } else {
+        println!(
+            "Fetched {} certificate(s) from {}:{}",
+            chain.certificates.len(),
+            chain.host,
+            chain.port
+        );
+        for certificate in &chain.certificates {
+            print_certificate(certificate);
         }
     }
     Ok(0)
