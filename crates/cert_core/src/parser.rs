@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use x509_parser::certificate::X509Certificate;
-use x509_parser::extensions::{GeneralName, ParsedExtension};
+use x509_parser::extensions::{DistributionPointName, GeneralName, ParsedExtension};
 use x509_parser::pem::parse_x509_pem;
 use x509_parser::prelude::*;
 use x509_parser::time::ASN1Time;
@@ -84,6 +84,8 @@ fn certificate_from_x509(
     let mut san = Vec::new();
     let mut is_ca = false;
     let mut path_length = None;
+    let mut crl_distribution_points = Vec::new();
+    let mut ocsp_responders = Vec::new();
 
     for extension in x509.extensions() {
         match extension.parsed_extension() {
@@ -97,6 +99,27 @@ fn certificate_from_x509(
             ParsedExtension::BasicConstraints(basic_constraints) => {
                 is_ca = basic_constraints.ca;
                 path_length = basic_constraints.path_len_constraint;
+            }
+            ParsedExtension::CRLDistributionPoints(points) => {
+                for point in &points.points {
+                    if let Some(DistributionPointName::FullName(names)) = &point.distribution_point
+                    {
+                        for name in names {
+                            if let GeneralName::URI(uri) = name {
+                                push_unique(&mut crl_distribution_points, uri);
+                            }
+                        }
+                    }
+                }
+            }
+            ParsedExtension::AuthorityInfoAccess(access) => {
+                for description in &access.accessdescs {
+                    if description.access_method.to_id_string() == "1.3.6.1.5.5.7.48.1" {
+                        if let GeneralName::URI(uri) = &description.access_location {
+                            push_unique(&mut ocsp_responders, uri);
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -114,9 +137,18 @@ fn certificate_from_x509(
         key_algorithm: x509.public_key().algorithm.algorithm.to_id_string(),
         is_ca,
         path_length,
+        crl_distribution_points,
+        ocsp_responders,
         fingerprint_sha256: fingerprint_sha256(&raw_der),
         raw_der,
     })
+}
+
+fn push_unique(values: &mut Vec<String>, value: &str) {
+    let value = value.trim();
+    if !value.is_empty() && !values.iter().any(|existing| existing == value) {
+        values.push(value.to_string());
+    }
 }
 
 fn to_utc(time: &ASN1Time) -> Result<DateTime<Utc>, ParseError> {

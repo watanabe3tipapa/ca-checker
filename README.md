@@ -43,7 +43,12 @@ ca-checker は、OS の信頼ストアを読み込み、証明書ごとの状態
 - 状態分布・期限タイムライン・発行者分布の統計パネル（クリックでフィルタ）
 - 状態サマリー、ステータスフィルタ、証明書一覧、詳細、PEM 表示
 - 期限警告日数の設定（7 / 30 / 90 / 180 日）
-- CLI による一覧・詳細・検証・スキャンと JSON 出力
+- GUI からの PEM / DER ファイル・フォルダのインポート
+- CRL / OCSP による失効確認（CRL 署名検証・OCSP レスポンス検証）
+- 期限切れ・期限間近・問題のある証明書のデスクトップ通知
+- GUI 内蔵ターミナル（ローカル PTY シェル）
+- 設定ファイル（`~/.config/ca-checker/config.toml`）による通知・失効確認の制御
+- CLI による一覧・詳細・検証・スキャン・通知・設定表示と JSON 出力
 - 検証結果に応じた終了コード（CI に組み込み可能）
 
 ## 機能一覧
@@ -59,7 +64,11 @@ ca-checker は、OS の信頼ストアを読み込み、証明書ごとの状態
 | JSON 出力 | — | 対応 | 一覧・詳細・検証結果を JSON で出力 |
 | 期限警告の変更 | 対応 | `--warn-days` | 期限間近と判定する日数を変更 |
 | 証明書の PEM 表示 | 対応 | — | 詳細画面で PEM を表示 |
-| ファイルインポート | 未対応 | 対応 | 現状は CLI でファイルを指定 |
+| ファイルインポート | 対応 | 対応 | GUI の Import、または CLI でファイル・フォルダを指定 |
+| CRL / OCSP 失効確認 | 対応 | `--revocation` | CRL / OCSP の取得と署名検証、失効状態の判定 |
+| デスクトップ通知 | 起動時 | `notify` | 期限切れ・期限間近・問題ありを OS 通知で知らせる |
+| 設定ファイル | 対応 | `config` | 通知・失効確認モード・警告日数を TOML で管理 |
+| 内蔵ターミナル | 対応 | — | Terminal タブからローカルシェルを起動 |
 
 ## 検証ステータス
 
@@ -72,7 +81,8 @@ ca-checker は、OS の信頼ストアを読み込み、証明書ごとの状態
 | `UntrustedRoot` | 信頼チェーンを構築できない | いいえ |
 | `SelfSigned` | 自己署名かつ信頼ストアに未登録 | いいえ |
 | `WeakSignature` | MD5 / SHA-1 など弱い署名アルゴリズム | いいえ |
-| `RevocationUnknown` | 失効状態が不明（将来対応） | いいえ |
+| `Revoked` | CRL / OCSP により失効が確認された | いいえ |
+| `RevocationUnknown` | 失効確認を実行したが、判定できなかった | いいえ |
 | `Error` | その他の検証エラー | いいえ |
 
 ## 統計と可視化
@@ -92,9 +102,15 @@ cargo run -p cert_cli -- list-os
 
 # CLI: リモートサーバーのチェーンを検証
 cargo run -p cert_cli -- verify --host example.com
+
+# CLI: 失効確認とデスクトップ通知
+cargo run -p cert_cli -- verify leaf.pem --chain intermediate.pem --revocation both
+cargo run -p cert_cli -- notify
 ```
 
-GUI の操作、全 CLI コマンド、`verify` の処理フロー、ネットワーク検証、統計パネル、JSON 出力の仕様は **[USAGE.md](USAGE.md)** にまとめています。
+起動すると OS の信頼ストアを読み込み、ダッシュボードを表示します。`Import` から証明書ファイルやフォルダを追加でき、`Settings` では期限警告日数・通知・失効確認モードを変更できます。詳細画面の `Check revocation` で CRL / OCSP を確認でき、`Terminal` タブではローカルシェルを起動できます。
+
+GUI の操作、全 CLI コマンド、`verify` の処理フロー、ネットワーク検証、失効確認、統計パネル、JSON 出力の仕様は **[USAGE.md](USAGE.md)** にまとめています。
 
 ## 動作環境
 
@@ -138,11 +154,15 @@ cargo build -p app
 │   ├── cert_core/               # ドメインモデル、パース、検証エンジン
 │   │   ├── src/models.rs
 │   │   ├── src/parser.rs
+│   │   ├── src/revocation.rs
 │   │   └── src/validator.rs
-│   ├── cert_infra/              # ファイル / OS 信頼ストア / ネットワーク
+│   ├── cert_infra/              # 設定 / ファイル / OS 信頼ストア / 通知 / 失効確認
+│   │   ├── src/config.rs
 │   │   ├── src/file_loader.rs
+│   │   ├── src/network.rs
+│   │   ├── src/notify.rs
 │   │   ├── src/os_store.rs
-│   │   └── src/network.rs
+│   │   └── src/revocation.rs
 │   ├── cert_cli/                # CLI バイナリ (cert-cli)
 │   │   ├── src/main.rs
 │   │   └── tests/cli.rs
@@ -184,18 +204,24 @@ cargo test --workspace
 ## 現在の制限
 
 - `fetch` はサーバーが提示したチェーンを取得するのみで、その場では検証しない（`verify` で明示的に検証してください）
-- GUI からのファイルインポート / ドラッグ＆ドロップは未実装（ファイル検証は CLI を使用）
-- CRL / OCSP による失効確認は未実装
+- GUI のファイル選択は対応済みだが、ウィンドウへのドラッグ＆ドロップは未対応
+- OCSP の nonce 検証は未対応
 - Windows は未対応
+- wterm は Web 専用のため、GUI 内では GPUI ネイティブの PTY ターミナルを使用
 - GPUI は pre-1.0 のため、アップグレード時に API 変更が発生する可能性あり
 
 ## 使用クレート
 
 - [gpui](https://crates.io/crates/gpui) — GUI
-- [x509-parser](https://crates.io/crates/x509-parser) — X.509 パース
+- [gpui-terminal](https://crates.io/crates/gpui-terminal) — 内蔵ターミナル
+- [portable-pty](https://crates.io/crates/portable-pty) — PTY
+- [x509-parser](https://crates.io/crates/x509-parser) — X.509 / CRL パース
+- [x509-ocsp](https://crates.io/crates/x509-ocsp) — OCSP リクエスト / レスポンス
 - [rustls-webpki](https://crates.io/crates/rustls-webpki) — チェーン検証
 - [rustls](https://crates.io/crates/rustls) — TLS ハンドシェイクによる証明書取得
 - [rustls-native-certs](https://crates.io/crates/rustls-native-certs) — OS 信頼ストア
+- [ureq](https://crates.io/crates/ureq) — CRL / OCSP の HTTP 取得
+- [notify-rust](https://crates.io/crates/notify-rust) — デスクトップ通知
 - [clap](https://crates.io/crates/clap) — CLI
 - [serde](https://crates.io/crates/serde) / [serde_json](https://crates.io/crates/serde_json) — JSON 出力
 - [chrono](https://crates.io/crates/chrono) — 日時処理

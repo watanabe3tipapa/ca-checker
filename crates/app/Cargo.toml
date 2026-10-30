@@ -15,3 +15,6 @@ cert_core.workspace = true
 cert_infra.workspace = true
 chrono.workspace = true
 gpui.workspace = true
+gpui-terminal.workspace = true
+parking_lot.workspace = true
+portable-pty.workspace = true

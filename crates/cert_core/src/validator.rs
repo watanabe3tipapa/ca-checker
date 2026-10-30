@@ -5,7 +5,10 @@ use rustls_pki_types::{CertificateDer, TrustAnchor, UnixTime};
 use x509_parser::certificate::X509Certificate;
 use x509_parser::prelude::FromDer;
 
-use crate::models::{CertSource, Certificate, ChainValidationResult, ValidationStatus};
+use crate::models::{
+    CertSource, Certificate, ChainValidationResult, RevocationCheck, RevocationStatus,
+    ValidationStatus,
+};
 use crate::parser::parse_der_certificate;
 
 const WEAK_SIGNATURE_OIDS: &[&str] = &[
@@ -105,6 +108,7 @@ pub fn validate(
         checked_at: now,
         errors,
         warnings,
+        revocation: None,
     }
 }
 
@@ -114,6 +118,37 @@ pub fn validate_in_os_store(
     options: &ValidationOptions,
 ) -> ChainValidationResult {
     validate(target, &[], trust_anchors_der, options)
+}
+
+pub fn apply_revocation(result: &mut ChainValidationResult, check: &RevocationCheck) {
+    result.revocation = Some(check.clone());
+    match &check.status {
+        RevocationStatus::Revoked { reason, revoked_at } => {
+            let mut message = format!("certificate is revoked ({})", check.source);
+            if let Some(reason) = reason {
+                message.push_str(&format!(": {reason}"));
+            }
+            if let Some(revoked_at) = revoked_at {
+                message.push_str(&format!(" at {revoked_at}"));
+            }
+            result.errors.push(message);
+            result.status = ValidationStatus::Revoked;
+        }
+        RevocationStatus::Unknown { message } => {
+            result.warnings.push(format!(
+                "revocation status is unknown ({}): {message}",
+                check.source
+            ));
+            if result.status.is_healthy() {
+                result.status = ValidationStatus::RevocationUnknown;
+            }
+        }
+        RevocationStatus::Good => {
+            result
+                .warnings
+                .push(format!("revocation status is good ({})", check.source));
+        }
+    }
 }
 
 fn expiry_status(target: &Certificate, options: &ValidationOptions) -> ValidationStatus {

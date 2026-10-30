@@ -29,6 +29,7 @@ pub enum ValidationStatus {
     UntrustedRoot,
     SelfSigned,
     WeakSignature,
+    Revoked,
     RevocationUnknown,
     Error(String),
 }
@@ -50,6 +51,7 @@ impl ValidationStatus {
             ValidationStatus::UntrustedRoot => "Untrusted root",
             ValidationStatus::SelfSigned => "Self-signed",
             ValidationStatus::WeakSignature => "Weak signature",
+            ValidationStatus::Revoked => "Revoked",
             ValidationStatus::RevocationUnknown => "Revocation unknown",
             ValidationStatus::Error(_) => "Error",
         }
@@ -69,6 +71,8 @@ pub struct Certificate {
     pub key_algorithm: String,
     pub is_ca: bool,
     pub path_length: Option<u32>,
+    pub crl_distribution_points: Vec<String>,
+    pub ocsp_responders: Vec<String>,
     pub raw_der: Vec<u8>,
     pub fingerprint_sha256: String,
 }
@@ -100,4 +104,36 @@ pub struct ChainValidationResult {
     pub checked_at: DateTime<Utc>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub revocation: Option<RevocationCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RevocationStatus {
+    Good,
+    Revoked {
+        reason: Option<String>,
+        revoked_at: Option<DateTime<Utc>>,
+    },
+    Unknown {
+        message: String,
+    },
+}
+
+impl RevocationStatus {
+    pub fn label(&self) -> &'static str {
+        match self {
+            RevocationStatus::Good => "Good",
+            RevocationStatus::Revoked { .. } => "Revoked",
+            RevocationStatus::Unknown { .. } => "Unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevocationCheck {
+    pub status: RevocationStatus,
+    pub source: String,
+    pub checked_at: DateTime<Utc>,
+    pub details: Vec<String>,
 }

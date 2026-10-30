@@ -1,13 +1,22 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use cert_core::{Certificate, ChainValidationResult, ValidationOptions, validate};
-use cert_infra::{fetch_chain, load_directory, load_file, load_os_store, trust_anchors_der};
+use cert_core::{
+    Certificate, ChainValidationResult, RevocationCheck, RevocationStatus, ValidationOptions,
+    apply_revocation, find_issuer_certificate, validate, validate_in_os_store,
+};
+use cert_infra::{
+    AppConfig, NotificationSummary, RevocationCache, RevocationConfig, RevocationMode,
+    check_revocation, config_path, fetch_chain, load_directory, load_file, load_os_store,
+    notify_summary, trust_anchors_der,
+};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "cert-cli", about = "X.509 CA certificate checker")]
 struct Cli {
+    #[arg(long, global = true, value_name = "PATH")]
+    config: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -34,8 +43,12 @@ enum Command {
         chain: Vec<PathBuf>,
         #[arg(long = "trust")]
         trust: Vec<PathBuf>,
-        #[arg(long, default_value_t = 30)]
-        warn_days: i64,
+        #[arg(long)]
+        warn_days: Option<i64>,
+        #[arg(long, value_name = "off|crl|ocsp|both")]
+        revocation: Option<RevocationMode>,
+        #[arg(long)]
+        notify: bool,
         #[arg(long)]
         json: bool,
     },
@@ -48,6 +61,18 @@ enum Command {
         host: String,
         #[arg(long, default_value_t = 443)]
         port: u16,
+        #[arg(long)]
+        json: bool,
+    },
+    Notify {
+        #[arg(long)]
+        json: bool,
+    },
+    Config {
+        #[arg(long)]
+        init: bool,
+        #[arg(long)]
+        force: bool,
         #[arg(long)]
         json: bool,
     },
@@ -74,6 +99,9 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> anyhow::Result<u8> {
+    let path = cli.config.unwrap_or_else(config_path);
+    let config = AppConfig::load(&path)?;
+
     match cli.command {
         Command::ListOs { json } => list_os(json),
         Command::Inspect { path, json } => inspect(&path, json),
@@ -84,6 +112,8 @@ fn run(cli: Cli) -> anyhow::Result<u8> {
             chain,
             trust,
             warn_days,
+            revocation,
+            notify,
             json,
         } => {
             let target = match (path, host) {
@@ -91,10 +121,21 @@ fn run(cli: Cli) -> anyhow::Result<u8> {
                 (None, Some(host)) => VerifyTarget::Network { host, port },
                 _ => anyhow::bail!("specify exactly one of a certificate path or --host"),
             };
-            verify(target, &chain, &trust, warn_days, json)
+            verify(
+                target,
+                &chain,
+                &trust,
+                warn_days.unwrap_or(config.warn_days),
+                revocation.unwrap_or(config.revocation.mode),
+                notify,
+                &config,
+                json,
+            )
         }
         Command::Scan { dir, json } => scan(&dir, json),
         Command::Fetch { host, port, json } => fetch(&host, port, json),
+        Command::Notify { json } => notify(&config, json),
+        Command::Config { init, force, json } => show_config(&path, init, force, json),
     }
 }
 
@@ -132,11 +173,15 @@ fn inspect(path: &Path, json: bool) -> anyhow::Result<u8> {
     Ok(0)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify(
     target: VerifyTarget,
     chain_paths: &[PathBuf],
     trust_paths: &[PathBuf],
     warn_days: i64,
+    revocation_mode: RevocationMode,
+    notify: bool,
+    config: &AppConfig,
     json: bool,
 ) -> anyhow::Result<u8> {
     let (target, mut intermediates) = match target {
@@ -156,26 +201,62 @@ fn verify(
         intermediates.extend(load_file(chain_path)?);
     }
 
-    let anchors = if trust_paths.is_empty() {
-        let store = load_os_store()?;
-        trust_anchors_der(&store.certificates)
+    let trust_certificates = if trust_paths.is_empty() {
+        load_os_store()?.certificates
     } else {
-        let mut anchors = Vec::new();
+        let mut certificates = Vec::new();
         for trust_path in trust_paths {
-            anchors.extend(trust_anchors_der(&load_file(trust_path)?));
+            certificates.extend(load_file(trust_path)?);
         }
-        anchors
+        certificates
     };
+    let anchors = trust_anchors_der(&trust_certificates);
     let options = ValidationOptions {
         now: chrono::Utc::now(),
         warn_days,
     };
-    let result = validate(&target, &intermediates, &anchors, &options);
+    let mut result = validate(&target, &intermediates, &anchors, &options);
+
+    let mut revocation_check = None;
+    if revocation_mode != RevocationMode::Off {
+        let issuer = find_issuer_certificate(&target, &intermediates, &trust_certificates);
+        let revocation_config = RevocationConfig {
+            mode: revocation_mode,
+            ..config.revocation.clone()
+        };
+        let cache = RevocationCache::new();
+        let check = check_revocation(&target, issuer, &revocation_config, &cache);
+        apply_revocation(&mut result, &check);
+        revocation_check = Some(check);
+    }
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&result)?);
+        if let Some(check) = &revocation_check {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "validation": result,
+                    "revocation": check,
+                }))?
+            );
+        } else {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
     } else {
         print_validation(&result);
+        if let Some(check) = &revocation_check {
+            print_revocation(check);
+        }
+    }
+
+    if notify {
+        let summary = NotificationSummary::from_statuses(std::iter::once(&result.status));
+        if summary.should_notify(&config.notifications) {
+            notify_summary(&summary)?;
+            if !json {
+                println!("Notification: {}", summary.title());
+            }
+        }
     }
 
     Ok(if result.status.is_healthy() { 0 } else { 1 })
@@ -222,6 +303,83 @@ fn fetch(host: &str, port: u16, json: bool) -> anyhow::Result<u8> {
         }
     }
     Ok(0)
+}
+
+fn notify(config: &AppConfig, json: bool) -> anyhow::Result<u8> {
+    let store = load_os_store()?;
+    let anchors = trust_anchors_der(&store.certificates);
+    let options = ValidationOptions {
+        now: chrono::Utc::now(),
+        warn_days: config.warn_days,
+    };
+    let results: Vec<ChainValidationResult> = store
+        .certificates
+        .iter()
+        .map(|certificate| validate_in_os_store(certificate, &anchors, &options))
+        .collect();
+    let summary = NotificationSummary::from_statuses(results.iter().map(|result| &result.status));
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+    } else {
+        println!("{}", summary.body());
+    }
+
+    if summary.should_notify(&config.notifications) {
+        notify_summary(&summary)?;
+        if !json {
+            println!("Notification: {}", summary.title());
+        }
+        Ok(0)
+    } else {
+        if !json {
+            println!("No notification required");
+        }
+        Ok(0)
+    }
+}
+
+fn show_config(path: &Path, init: bool, force: bool, json: bool) -> anyhow::Result<u8> {
+    if init {
+        if path.exists() && !force {
+            anyhow::bail!(
+                "config already exists at {} (use --force to overwrite)",
+                path.display()
+            );
+        }
+        AppConfig::default().save(path)?;
+        println!("Wrote {}", path.display());
+    }
+
+    let config = AppConfig::load(path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&config)?);
+    } else {
+        println!("Config: {}", path.display());
+        print!("{}", toml::to_string_pretty(&config)?);
+    }
+    Ok(0)
+}
+
+fn print_revocation(check: &RevocationCheck) {
+    println!();
+    println!("Revocation: {}", check.status.label());
+    println!("Source:     {}", check.source);
+    match &check.status {
+        RevocationStatus::Revoked { reason, revoked_at } => {
+            if let Some(reason) = reason {
+                println!("Reason:     {reason}");
+            }
+            if let Some(revoked_at) = revoked_at {
+                println!("Revoked at: {}", revoked_at.to_rfc3339());
+            }
+        }
+        RevocationStatus::Unknown { message } => println!("Detail:     {message}"),
+        RevocationStatus::Good => {}
+    }
+    for detail in &check.details {
+        println!("Detail:     {detail}");
+    }
 }
 
 fn print_certificate(certificate: &Certificate) {

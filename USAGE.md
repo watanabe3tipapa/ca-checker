@@ -2,7 +2,7 @@
 
 [README](README.md) に戻る
 
-このドキュメントでは、GUI と CLI の使い方、`verify` の処理フロー、ネットワーク検証の仕組み、統計パネルの見方、JSON 出力の仕様を説明します。
+このドキュメントでは、GUI と CLI の使い方、`verify` の処理フロー、ネットワーク検証・失効確認・通知の仕組み、統計パネルの見方、JSON 出力の仕様を説明します。
 
 ## GUI
 
@@ -13,8 +13,10 @@ cargo run -p app
 起動すると OS の信頼ストアを読み込み、ダッシュボードを表示します。
 
 - **Dashboard**: 状態サマリー、統計パネル、ステータスフィルタ、証明書一覧を表示します。
-- **Detail**: 一覧の行を選択すると移動します。Subject / Issuer / Serial / SAN / 有効期間 / 署名・鍵アルゴリズム / SHA-256 / PEM を確認できます。
-- **Settings**: 期限警告日数を 7 / 30 / 90 / 180 日から選択できます。
+- **Detail**: 一覧の行を選択すると移動します。Subject / Issuer / Serial / SAN / 有効期間 / 署名・鍵アルゴリズム / SHA-256 / PEM に加え、失効状態を確認できます。`Check revocation` で CRL / OCSP を実行します。
+- **Settings**: 期限警告日数（7 / 30 / 90 / 180 日）、デスクトップ通知、失効確認モードを変更し、設定ファイルに保存できます。
+- **Import**: 証明書ファイルまたはフォルダを選択して一覧に追加します。
+- **Terminal**: ローカル PTY シェルを起動します。Web 専用の wterm ではなく、GPUI ネイティブのターミナルです。
 - **Reload**: OS の信頼ストアを再読み込みします。
 
 ### 統計パネル
@@ -63,7 +65,19 @@ cargo run -p cert_cli -- scan /path/to/certs --json
 # リモートサーバーが提示する証明書チェーンを取得（検証は行わない）
 cargo run -p cert_cli -- fetch example.com
 cargo run -p cert_cli -- fetch example.com --port 443 --json
+
+# CRL / OCSP による失効確認（off | crl | ocsp | both）
+cargo run -p cert_cli -- verify leaf.pem --chain intermediate.pem --revocation both
+
+# 期限切れ・期限間近・問題ありをデスクトップ通知
+cargo run -p cert_cli -- notify
+
+# 設定ファイルの初期化・表示
+cargo run -p cert_cli -- config --init
+cargo run -p cert_cli -- config --json
 ```
+
+設定ファイルは既定で `~/.config/ca-checker/config.toml` です。`--config PATH` または環境変数 `CA_CHECKER_CONFIG` で変更できます。
 
 ビルド済みバイナリは `target/debug/cert-cli` に生成されます。
 
@@ -76,6 +90,8 @@ cargo run -p cert_cli -- fetch example.com --port 443 --json
 | `verify` | ファイルまたは `--host` | リーフと中間 CA を収集し、`rustls-webpki` で信頼アンカーまで検証 | ステータス、信頼アンカー、エラー、警告 |
 | `scan` | ディレクトリ | `.pem` / `.crt` / `.cer` / `.der` を再帰的に列挙してパース | 証明書一覧、ファイル単位のエラー |
 | `fetch` | `--host` / `--port` | TLS ハンドシェイクでサーバー提示のチェーンを取得 | 証明書一覧（取得のみで検証なし） |
+| `notify` | 設定ファイル | OS 信頼ストアを検証し、通知条件に一致する場合だけデスクトップ通知 | 集計結果、通知の有無 |
+| `config` | `--init` / `--force` | 既定設定の書き出し、または現在の設定を表示 | 設定内容（TOML / JSON） |
 
 ## `verify` の技術解説
 
@@ -96,6 +112,7 @@ cargo run -p cert_cli -- fetch example.com --port 443 --json
    - **自己署名**: 対象が自己発行かつ信頼ストアにない場合は `SelfSigned`。
    - **チェーン検証**: `rustls-webpki` の `verify_for_usage` を現在時刻で実行。EKU が `serverAuth` で失敗した場合は `clientAuth` で再試行します。
    - **期限間近**: `Valid` でも残日数が `--warn-days`（既定 30 日）以内なら `ExpiringSoon`。
+   - **失効確認**: `--revocation` または設定ファイルで有効な場合、CRL / OCSP を取得して署名を検証し、結果を `Revoked` / `RevocationUnknown` として反映します。
 
 ### 検証の優先順位
 
@@ -105,9 +122,11 @@ cargo run -p cert_cli -- fetch example.com --port 443 --json
 2. `Expired` — 有効期限切れ
 3. `WeakSignature` — MD5 / SHA-1 などの弱い署名
 4. `Valid` / `ExpiringSoon` — 信頼アンカーと完全一致、またはチェーン検証に成功
-5. `SelfSigned` — 自己発行かつ未信頼
-6. `UntrustedRoot` — 信頼チェーンを構築できない
-7. `Error` — その他の検証エラー
+5. `Revoked` — CRL / OCSP により失効が確認された
+6. `RevocationUnknown` — 失効確認を実行したが判定できなかった
+7. `SelfSigned` — 自己発行かつ未信頼
+8. `UntrustedRoot` — 信頼チェーンを構築できない
+9. `Error` — その他の検証エラー
 
 チェーン検証後も、CA 証明書のパス長制約がない場合や、リーフに SAN がない場合は警告として記録します。
 
@@ -119,7 +138,8 @@ cargo run -p cert_cli -- fetch example.com --port 443 --json
 - SNI には `--host` の値をそのまま使用します（IP リテラルの場合は SNI を送信しません）。
 - **取得時点では証明書を検証しません。** 自己署名・期限切れ・未信頼の証明書でも取得できます。信頼判定は `verify` のチェーン検証で行います。
 - サーバーが中間 CA を送らない場合は `--chain intermediate.pem` で補完できます。
-- クライアント証明書、ALPN、CRL / OCSP による失効確認には未対応です。
+- クライアント証明書と ALPN には未対応です。失効確認はネットワーク取得とは独立しており、`verify --revocation` または設定ファイルで有効にします。
+- OCSP の nonce 検証には未対応です。
 
 ```sh
 # サーバーが提示したチェーンをそのまま表示（検証なし）
@@ -144,9 +164,9 @@ cargo run -p cert_cli -- verify --host example.com --json
 | コマンド | JSON の形 |
 |---|---|
 | `list-os` / `inspect` / `scan` / `fetch` | `Certificate` の配列。`source` で取得元（OS / ファイル / ネットワーク）を識別 |
-| `verify` | `ChainValidationResult`（`target` / `intermediates` / `trust_anchor` / `status` / `checked_at` / `errors` / `warnings`） |
+| `verify` | `ChainValidationResult`（`target` / `intermediates` / `trust_anchor` / `status` / `checked_at` / `errors` / `warnings` / `revocation`）。失効確認を実行した場合は `validation` と `revocation` を含むオブジェクト |
 
-JSON 出力にはパース警告を含めません。警告を確認したい場合は `--json` を外して実行してください。エラー時は JSON ではなく stderr にメッセージを出し、終了コード `2` を返します。
+`notify` / `config` も `--json` に対応します。JSON 出力にはパース警告を含めません。警告を確認したい場合は `--json` を外して実行してください。エラー時は JSON ではなく stderr にメッセージを出し、終了コード `2` を返します。
 
 ## 関連リンク
 

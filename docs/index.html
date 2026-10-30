@@ -355,6 +355,7 @@ td code { white-space: nowrap; }
 .status.untrusted { background: #ff8fab; }
 .status.self { background: #c8b6ff; }
 .status.weak { background: #ff9f9f; }
+.status.revoked { background: #ff4d4d; }
 
 .preview {
   border: 5px solid var(--border);
@@ -560,6 +561,7 @@ button:focus-visible {
   </div>
 
   <nav class="lp-nav">
+    <a href="#purpose">目的</a>
     <a href="#preview">ダッシュボード</a>
     <a href="#features">機能</a>
     <a href="#status">検証ステータス</a>
@@ -570,6 +572,89 @@ button:focus-visible {
   </nav>
 
   <main>
+
+    <section id="purpose" aria-labelledby="purpose-heading">
+      <h2 id="purpose-heading">このツールは何のためにあるのか</h2>
+      <p class="intro">
+        ca-checker は、証明書を発行・配布するためのツールではありません。いま自分の環境が信頼している証明書が、本当に信頼してよい状態かを確認するための「信頼の点検ツール」です。
+      </p>
+      <p class="intro">
+        証明書は、ファイルやストアに置いてあるだけでは安全ではありません。有効期限が切れていないか、弱い署名アルゴリズムを使っていないか、発行者とのつながりが正しいか、失効していないか。これらを確認して初めて、証明書は「信頼の鎖」として機能します。ca-checker は、その鎖を人間にも機械にも扱いやすい形で可視化します。
+      </p>
+
+      <div class="cards">
+        <article class="card">
+          <span class="card-label">why</span>
+          <h3>信頼を「なんとなく」で終わらせない</h3>
+          <p>OS の信頼ストアには、日々の開発や運用で意識されないまま多数のルート CA と中間 CA が入っています。期限切れや未信頼の証明書が紛れていても、通常の業務は動いてしまうことがあります。ca-checker は、その見えないリスクを一覧できる状態にします。</p>
+          <div class="tags">
+            <span class="tag">visibility</span>
+            <span class="tag">trust-store</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="card-label">who</span>
+          <h3>開発者・運用・セキュリティ担当へ</h3>
+          <p>ローカル環境の TLS エラーを切り分けたい開発者、証明書の期限を事前に把握したい運用担当、弱い署名や失効を確認したいセキュリティ担当。GUI と CLI のどちらからでも、同じ検証エンジンを使えます。</p>
+          <div class="tags">
+            <span class="tag">developer</span>
+            <span class="tag">sre</span>
+            <span class="tag">security</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="card-label">how</span>
+          <h3>期限・署名・連なり・失効をまとめて確認</h3>
+          <p>有効期限、弱い署名アルゴリズム、ルートからリーフまでのチェーン、CRL / OCSP による失効状態を確認します。結果はステータス、検証メッセージ、JSON として出力でき、CI の終了コードにも利用できます。</p>
+          <div class="tags">
+            <span class="tag">expiry</span>
+            <span class="tag">chain</span>
+            <span class="tag">revocation</span>
+          </div>
+        </article>
+      </div>
+
+      <p class="intro" style="margin-top: 22px;">
+        ca-checker が答えるのは、次の4つの問いです。
+      </p>
+      <ol class="steps">
+        <li>
+          <h3>この証明書は、いつまで有効か</h3>
+          <p>有効期間の開始前・期限切れ・期限間近を判定します。期限警告日数は 7 / 30 / 90 / 180 日から選べ、設定ファイルにも保存できます。</p>
+        </li>
+        <li>
+          <h3>この署名は、十分に強いか</h3>
+          <p>MD5 や SHA-1 など、現在では弱いとされる署名アルゴリズムを検出します。</p>
+        </li>
+        <li>
+          <h3>この証明書は、信頼の起点までつながっているか</h3>
+          <p>ルート CA・中間 CA・リーフ証明書の連なりを <code>rustls-webpki</code> で検証します。自己署名証明書や未信頼のルートも区別して表示します。</p>
+        </li>
+        <li>
+          <h3>この証明書は、失効していないか</h3>
+          <p>証明書が公開している CRL Distribution Point と OCSP Responder を使って失効状態を確認します。有効・失効・不明を区別し、取得できなかった理由も表示します。</p>
+        </li>
+      </ol>
+
+      <div class="table-wrap" style="margin-top: 22px;">
+        <table>
+          <thead>
+            <tr><th>利用場面</th><th>ca-checker でできること</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>ローカル開発</td><td>TLS エラーの原因が期限切れ・未信頼・失効のどれかを切り分ける</td></tr>
+            <tr><td>日々の運用</td><td>OS 信頼ストアを一覧し、期限間近の証明書をデスクトップ通知で把握する</td></tr>
+            <tr><td>リリース前チェック</td><td><code>verify --revocation</code> を CI に組み込み、異常時は終了コード 1 で止める</td></tr>
+            <tr><td>セキュリティ確認</td><td>弱い署名アルゴリズムや失効済み証明書を洗い出す</td></tr>
+            <tr><td>調査・学習</td><td>証明書のフィールド、チェーン、CRL / OCSP の応答を画面と CLI で確認する</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="intro" style="margin-top: 22px;">
+        <strong>できないこと:</strong> 秘密鍵の管理、証明書の発行、HSM / スマートカードの操作、CT ログの照会は行いません。また、失効確認は証明書が公開している CRL / OCSP エンドポイントに依存するため、ネットワークや提供元の状態によって「不明」になることがあります。ca-checker は専門的な PKI 運用を置き換えるものではなく、日々の確認を手早くするための補助ツールです。
+      </p>
+    </section>
 
     <section id="preview" aria-labelledby="preview-heading">
       <h2 id="preview-heading">ダッシュボード</h2>
@@ -626,7 +711,7 @@ button:focus-visible {
 
     <section id="features" aria-labelledby="features-heading">
       <h2 id="features-heading">主な機能</h2>
-      <p class="intro">証明書のパースからチェーン検証、一括スキャン、JSON 出力まで。GUI と CLI で同じ検証エンジンを使います。</p>
+      <p class="intro">証明書のパースからチェーン検証、失効確認、ファイルインポート、通知、JSON 出力まで。GUI と CLI で同じ検証エンジンを使います。</p>
       <div class="cards">
         <article class="card">
           <span class="card-label">dashboard</span>
@@ -659,7 +744,7 @@ button:focus-visible {
         <article class="card">
           <span class="card-label">cli</span>
           <h3>CLI ツール</h3>
-          <p><code>list-os</code> / <code>inspect</code> / <code>verify</code> / <code>scan</code> / <code>fetch</code> を提供。検証結果に応じた終了コードで CI にも組み込めます。</p>
+          <p><code>list-os</code> / <code>inspect</code> / <code>verify</code> / <code>scan</code> / <code>fetch</code> / <code>notify</code> / <code>config</code> を提供。検証結果に応じた終了コードで CI にも組み込めます。</p>
           <div class="tags">
             <span class="tag">clap</span>
             <span class="tag">exit-code</span>
@@ -673,6 +758,45 @@ button:focus-visible {
             <span class="tag">recursive</span>
             <span class="tag">pem</span>
             <span class="tag">der</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="card-label">import</span>
+          <h3>GUI ファイルインポート</h3>
+          <p>GUI から PEM / DER 証明書やフォルダを選択して読み込みます。OS 信頼ストアの証明書と同じ一覧で比較できます。</p>
+          <div class="tags">
+            <span class="tag">pem</span>
+            <span class="tag">der</span>
+            <span class="tag">folder</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="card-label">revocation</span>
+          <h3>CRL / OCSP 失効確認</h3>
+          <p>証明書の CRL Distribution Point と OCSP Responder を利用して失効状態を確認。署名検証、有効期限、レスポンスの鮮度もチェックします。</p>
+          <div class="tags">
+            <span class="tag">crl</span>
+            <span class="tag">ocsp</span>
+            <span class="tag">revoked</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="card-label">notify</span>
+          <h3>デスクトップ通知</h3>
+          <p>期限切れ・期限間近・問題のある証明書が見つかったとき、OS の通知機能で知らせます。起動時の通知と CLI からの通知に対応します。</p>
+          <div class="tags">
+            <span class="tag">notification</span>
+            <span class="tag">startup</span>
+          </div>
+        </article>
+        <article class="card">
+          <span class="card-label">terminal</span>
+          <h3>内蔵ターミナル</h3>
+          <p>GUI の Terminal タブからローカルシェルを起動し、<code>cert-cli</code> の検証やスキャンをその場で実行できます。</p>
+          <div class="tags">
+            <span class="tag">pty</span>
+            <span class="tag">shell</span>
+            <span class="tag">cli</span>
           </div>
         </article>
         <article class="card">
@@ -703,7 +827,8 @@ button:focus-visible {
             <tr><td><span class="status untrusted">UntrustedRoot</span></td><td>信頼チェーンを構築できない</td><td>いいえ</td></tr>
             <tr><td><span class="status self">SelfSigned</span></td><td>自己署名かつ信頼ストアに未登録</td><td>いいえ</td></tr>
             <tr><td><span class="status weak">WeakSignature</span></td><td>MD5 / SHA-1 など弱い署名アルゴリズム</td><td>いいえ</td></tr>
-            <tr><td><span class="status">RevocationUnknown</span></td><td>失効状態が不明（将来対応）</td><td>いいえ</td></tr>
+            <tr><td><span class="status revoked">Revoked</span></td><td>CRL / OCSP により失効が確認された</td><td>いいえ</td></tr>
+            <tr><td><span class="status">RevocationUnknown</span></td><td>失効確認を実行したが、判定できなかった</td><td>いいえ</td></tr>
             <tr><td><span class="status expired">Error</span></td><td>その他の検証エラー</td><td>いいえ</td></tr>
           </tbody>
         </table>
@@ -803,22 +928,30 @@ cargo build --workspace</code></pre>
         </li>
         <li>
           <h3>GUI を起動する</h3>
-          <p>OS の信頼ストアを読み込み、ダッシュボードを開きます。</p>
+          <p>OS の信頼ストアを読み込み、ダッシュボードを開きます。Import から証明書ファイルやフォルダを追加でき、Settings で期限警告日数・通知・失効確認モードを変更できます。</p>
           <pre><code>cargo run -p app</code></pre>
+          <p>失効確認を有効にしたら、証明書の詳細画面で「Check revocation」を押します。Terminal タブではローカルシェルを起動できます。</p>
         </li>
         <li>
           <h3>CLI で検証する</h3>
-          <p>OS の証明書一覧、ファイルの詳細、チェーン検証、ディレクトリスキャン、リモート証明書の取得と検証を実行できます。</p>
-          <pre><code># OS 信頼ストアの一覧
+          <p>OS の証明書一覧、ファイルの詳細、チェーン検証、失効確認、通知、設定ファイルの表示、リモート証明書の取得と検証を実行できます。</p>
+          <pre><code># 設定ファイルを初期化する
+cargo run -p cert_cli -- config --init
+
+# OS 信頼ストアの一覧
 cargo run -p cert_cli -- list-os
 
 # 証明書ファイルの詳細
 cargo run -p cert_cli -- inspect certificate.pem
 
-# ルートを明示してチェーン検証
+# ルートを明示してチェーン検証 + CRL / OCSP 失効確認
 cargo run -p cert_cli -- verify leaf.pem \
   --chain intermediate.pem \
-  --trust root.pem
+  --trust root.pem \
+  --revocation both
+
+# 期限切れ・期限間近をデスクトップ通知する
+cargo run -p cert_cli -- notify
 
 # リモートサーバーのチェーンを OS 信頼ストアで検証
 cargo run -p cert_cli -- verify --host example.com
@@ -828,6 +961,7 @@ cargo run -p cert_cli -- scan /path/to/certs --json
 
 # リモートサーバーが提示するチェーンを取得（検証なし）
 cargo run -p cert_cli -- fetch example.com --json</code></pre>
+          <p>設定ファイルの場所は <code>~/.config/ca-checker/config.toml</code> です。<code>--config PATH</code> で別のファイルを指定できます。</p>
         </li>
       </ol>
 
@@ -906,9 +1040,10 @@ cargo run -p cert_cli -- fetch example.com --json</code></pre>
       <h2 id="limits-heading">現在の制限</h2>
       <ul>
         <li><code>fetch</code> はサーバーが提示したチェーンを取得するのみで、その場では検証しません（<code>verify</code> で明示的に検証してください）</li>
-        <li>GUI からのファイルインポート / ドラッグ＆ドロップは未実装（ファイル検証は CLI を使用）</li>
-        <li>CRL / OCSP による失効確認は未実装</li>
+        <li>GUI のファイル選択は対応済みですが、ウィンドウへのドラッグ＆ドロップは未対応</li>
+        <li>OCSP の nonce 検証は未対応</li>
         <li>Windows は未対応</li>
+        <li>wterm は Web 専用のため、GUI 内では GPUI ネイティブの PTY ターミナルを使用</li>
         <li>GPUI は pre-1.0 のため、アップグレード時に API 変更が発生する可能性あり</li>
       </ul>
     </section>

@@ -117,8 +117,8 @@ fn validates_healthy_chain_against_root() {
 
     let result = validate(
         &chain.leaf,
-        &[chain.intermediate.clone()],
-        &[chain.root.raw_der.clone()],
+        std::slice::from_ref(&chain.intermediate),
+        std::slice::from_ref(&chain.root.raw_der),
         &ValidationOptions {
             now: Utc::now(),
             warn_days: 30,
@@ -140,8 +140,8 @@ fn detects_expired_certificate() {
 
     let result = validate(
         &chain.leaf,
-        &[chain.intermediate.clone()],
-        &[chain.root.raw_der.clone()],
+        std::slice::from_ref(&chain.intermediate),
+        std::slice::from_ref(&chain.root.raw_der),
         &ValidationOptions::default(),
     );
 
@@ -156,7 +156,7 @@ fn detects_untrusted_root() {
 
     let result = validate(
         &chain.leaf,
-        &[chain.intermediate.clone()],
+        std::slice::from_ref(&chain.intermediate),
         &[],
         &ValidationOptions::default(),
     );

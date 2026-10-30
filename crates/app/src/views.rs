@@ -1,9 +1,9 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
-use cert_core::{Certificate, ValidationStatus};
+use cert_core::{Certificate, RevocationStatus, ValidationStatus};
 use chrono::Utc;
 use gpui::{
-    AnyElement, App, Context, FontWeight, Hsla, IntoElement, Window, div, prelude::*, px, relative,
-    rgb, uniform_list,
+    AnyElement, App, Context, FontWeight, Hsla, IntoElement, PathPromptOptions, Window, div,
+    prelude::*, px, relative, rgb, uniform_list,
 };
 
 use crate::state::{AppState, CertRow, Counts, ExpiryBucket, Filter, IssuerCount, View};
@@ -17,7 +17,7 @@ const UI_FONT: &str = "Hiragino Sans";
 const MONO_FONT: &str = "Menlo";
 
 impl AppState {
-    pub fn render_root(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub fn render_root(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().size_full().bg(rgb(MUTED)).p_3().child(
             div()
                 .flex()
@@ -31,13 +31,19 @@ impl AppState {
                 .font_family(UI_FONT)
                 .text_color(rgb(FG))
                 .child(self.render_header(cx))
-                .child(div().flex_1().min_h(px(0.)).child(self.render_content(cx))),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h(px(0.))
+                        .child(self.render_content(window, cx)),
+                ),
         )
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let reload_entity = entity.clone();
+        let import_entity = entity.clone();
 
         div()
             .flex()
@@ -114,10 +120,35 @@ impl AppState {
                     .child(nav_button(
                         "Settings",
                         self.view == View::Settings,
-                        entity,
+                        entity.clone(),
                         View::Settings,
                     ))
+                    .child(nav_button(
+                        "Terminal",
+                        self.view == View::Terminal,
+                        entity,
+                        View::Terminal,
+                    ))
                     .child(div().flex_1())
+                    .child(action_button("Import", false, move |_, cx| {
+                        let receiver = cx.prompt_for_paths(PathPromptOptions {
+                            files: true,
+                            directories: true,
+                            multiple: true,
+                            prompt: Some("Import certificates".into()),
+                        });
+                        let entity = import_entity.clone();
+                        cx.spawn(async move |cx| {
+                            if let Ok(Ok(Some(paths))) = receiver.await {
+                                cx.update_entity(&entity, |this, cx| {
+                                    this.import_paths(paths);
+                                    cx.notify();
+                                })
+                                .ok();
+                            }
+                        })
+                        .detach();
+                    }))
                     .child(action_button("Reload", true, move |_, cx| {
                         reload_entity.update(cx, |this, cx| {
                             this.reload();
@@ -127,11 +158,12 @@ impl AppState {
             )
     }
 
-    fn render_content(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         match self.view {
             View::Dashboard => self.render_dashboard(cx).into_any_element(),
             View::Detail => self.render_detail(cx).into_any_element(),
             View::Settings => self.render_settings(cx).into_any_element(),
+            View::Terminal => self.render_terminal(window, cx).into_any_element(),
         }
     }
 
@@ -367,6 +399,26 @@ impl AppState {
                     .child(property("SHA-256", certificate.fingerprint_sha256.clone())),
             )
             .child(section(
+                "Revocation endpoints",
+                if certificate.crl_distribution_points.is_empty()
+                    && certificate.ocsp_responders.is_empty()
+                {
+                    vec!["No CRL or OCSP endpoint advertised".to_string()]
+                } else {
+                    certificate
+                        .crl_distribution_points
+                        .iter()
+                        .map(|url| format!("CRL: {url}"))
+                        .chain(
+                            certificate
+                                .ocsp_responders
+                                .iter()
+                                .map(|url| format!("OCSP: {url}")),
+                        )
+                        .collect()
+                },
+            ))
+            .child(section(
                 "Subject alternative names",
                 if certificate.san.is_empty() {
                     vec!["-".to_string()]
@@ -392,6 +444,76 @@ impl AppState {
                         .collect()
                 },
             ))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(section_title("Revocation status"))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap_3()
+                            .child(action_button(
+                                "Check revocation",
+                                self.config.revocation.mode != cert_infra::RevocationMode::Off,
+                                {
+                                    let entity = cx.entity();
+                                    move |_, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.start_revocation_check(cx);
+                                            cx.notify();
+                                        });
+                                    }
+                                },
+                            ))
+                            .child(meta_tag(
+                                if self.config.revocation.mode == cert_infra::RevocationMode::Off {
+                                    "Revocation mode is Off (enable it in Settings)".to_string()
+                                } else {
+                                    self.config.revocation.mode.label().to_string()
+                                },
+                            )),
+                    )
+                    .child(section(
+                        "Revocation details",
+                        match &row.result.revocation {
+                            Some(check) => {
+                                let mut details = vec![format!(
+                                    "{} via {} at {}",
+                                    check.status.label(),
+                                    check.source,
+                                    check.checked_at.format("%Y-%m-%d %H:%M UTC")
+                                )];
+                                if let RevocationStatus::Revoked { reason, revoked_at } =
+                                    &check.status
+                                {
+                                    if let Some(reason) = reason {
+                                        details.push(format!("Reason: {reason}"));
+                                    }
+                                    if let Some(revoked_at) = revoked_at {
+                                        details.push(format!("Revoked at: {revoked_at}"));
+                                    }
+                                }
+                                if let RevocationStatus::Unknown { message } = &check.status {
+                                    details.push(message.clone());
+                                }
+                                details.extend(check.details.clone());
+                                details
+                            }
+                            None => vec!["Not checked yet".to_string()],
+                        },
+                    ))
+                    .child(
+                        div().children(
+                            self.revocation_message
+                                .clone()
+                                .map(|message| section("Revocation result", vec![message])),
+                        ),
+                    ),
+            )
             .child(
                 div()
                     .flex()
@@ -485,8 +607,7 @@ impl AppState {
                                 .hover(|this| this.bg(rgb(ACCENT)))
                                 .child(format!("{days} days"))
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.warn_days = days;
-                                    this.reload();
+                                    this.set_warn_days(days);
                                     cx.notify();
                                 }))
                         }),
@@ -516,6 +637,139 @@ impl AppState {
                     .flex()
                     .flex_col()
                     .gap_2()
+                    .child(section_title("Configuration"))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_3()
+                            .child(property(
+                                "Config path",
+                                self.config_path.display().to_string(),
+                            ))
+                            .child(property(
+                                "Notifications",
+                                if self.config.notifications.enabled {
+                                    "Enabled".to_string()
+                                } else {
+                                    "Disabled".to_string()
+                                },
+                            ))
+                            .child(property(
+                                "Revocation mode",
+                                self.config.revocation.mode.label().to_string(),
+                            )),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(action_button("Toggle notifications", false, {
+                                let entity = cx.entity();
+                                move |_, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.toggle_notifications();
+                                        cx.notify();
+                                    });
+                                }
+                            }))
+                            .child(action_button("Save config", true, {
+                                let entity = cx.entity();
+                                move |_, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.save_config();
+                                        cx.notify();
+                                    });
+                                }
+                            })),
+                    )
+                    .child(div().children(self.config_message.clone())),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(section_title("Revocation checking"))
+                    .child(div().flex().flex_wrap().gap_2().children(
+                        cert_infra::RevocationMode::ALL.into_iter().map(|mode| {
+                            let active = self.config.revocation.mode == mode;
+                            div()
+                                .id(("revocation-mode", mode as usize))
+                                .border_2()
+                                .border_color(rgb(FG))
+                                .rounded_xs()
+                                .px_3()
+                                .py_1()
+                                .font_family(MONO_FONT)
+                                .text_xs()
+                                .font_weight(FontWeight::BOLD)
+                                .cursor_pointer()
+                                .bg(if active { rgb(ACCENT) } else { rgb(BG) })
+                                .hover(|this| this.bg(rgb(ACCENT)))
+                                .child(mode.label())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.set_revocation_mode(mode);
+                                    cx.notify();
+                                }))
+                        }),
+                    )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(section_title("Certificate import"))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(action_button("Import files or folders", true, {
+                                let entity = cx.entity();
+                                move |_, cx| {
+                                    let receiver = cx.prompt_for_paths(PathPromptOptions {
+                                        files: true,
+                                        directories: true,
+                                        multiple: true,
+                                        prompt: Some("Import certificates".into()),
+                                    });
+                                    let entity = entity.clone();
+                                    cx.spawn(async move |cx| {
+                                        if let Ok(Ok(Some(paths))) = receiver.await {
+                                            cx.update_entity(&entity, |this, cx| {
+                                                this.import_paths(paths);
+                                                cx.notify();
+                                            })
+                                            .ok();
+                                        }
+                                    })
+                                    .detach();
+                                }
+                            }))
+                            .child(action_button("Clear imports", false, {
+                                let entity = cx.entity();
+                                move |_, cx| {
+                                    entity.update(cx, |this, cx| {
+                                        this.clear_imports();
+                                        cx.notify();
+                                    });
+                                }
+                            })),
+                    )
+                    .child(property(
+                        "Imported certificates",
+                        self.imported.len().to_string(),
+                    ))
+                    .child(div().children(self.import_message.clone())),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
                     .child(section_title("Diagnostics"))
                     .child(
                         div()
@@ -523,16 +777,75 @@ impl AppState {
                             .flex_wrap()
                             .gap_3()
                             .child(property(
-                                "Network fetching",
-                                "Not implemented in this build".to_string(),
+                                "Terminal",
+                                "Native PTY shell (Terminal tab)".to_string(),
                             ))
                             .child(property(
-                                "Certificate import",
-                                "Use cert-cli inspect/verify for files".to_string(),
+                                "wterm",
+                                "wterm is web-only; native terminal is used".to_string(),
                             )),
                     ),
             )
             .child(section("Load errors", load_errors))
+    }
+    fn render_terminal(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        if let Some(terminal) = &self.terminal {
+            return div()
+                .flex()
+                .flex_col()
+                .size_full()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .border_b_4()
+                        .border_color(rgb(FG))
+                        .px_6()
+                        .py_3()
+                        .child(section_title("Terminal"))
+                        .child(div().flex_1())
+                        .child(meta_tag(
+                            "Native PTY · type exit to close the shell".to_string(),
+                        )),
+                )
+                .child(div().flex_1().min_h(px(0.)).child(terminal.clone()))
+                .into_any_element();
+        }
+
+        let entity = cx.entity();
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_4()
+            .child(
+                div()
+                    .text_xl()
+                    .font_weight(FontWeight::BOLD)
+                    .child("Terminal"),
+            )
+            .child(
+                div()
+                    .font_family(MONO_FONT)
+                    .text_sm()
+                    .text_color(rgb(MUTED_TEXT))
+                    .child("Start a local shell inside ca-checker."),
+            )
+            .child(action_button("Start shell", true, move |window, cx| {
+                entity.update(cx, |this, cx| {
+                    this.ensure_terminal(window, cx);
+                    cx.notify();
+                });
+            }))
+            .child(div().children(self.terminal_error.clone()))
+            .into_any_element()
     }
 }
 
@@ -1055,6 +1368,7 @@ fn status_color(status: &ValidationStatus) -> Hsla {
         ValidationStatus::UntrustedRoot => rgb(0xff8fab).into(),
         ValidationStatus::SelfSigned => rgb(0xc8b6ff).into(),
         ValidationStatus::WeakSignature => rgb(0xff9f9f).into(),
+        ValidationStatus::Revoked => rgb(0xff4d4d).into(),
         ValidationStatus::RevocationUnknown => rgb(0xffe066).into(),
         ValidationStatus::Error(_) => rgb(0xff6b6b).into(),
     }
