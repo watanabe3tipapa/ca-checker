@@ -237,23 +237,6 @@ cargo test --workspace
 - [chrono](https://crates.io/crates/chrono) — 日時処理
 - [rcgen](https://crates.io/crates/rcgen) — テスト用証明書生成
 
-## コントリビューション
-
-コントリビューションは歓迎します。不具合報告や改善案は、GitHub の Issue または Pull Request で共有してください。検証ロジック、UI、ドキュメントのいずれも対象です。
-
-基本的なワークフロー:
-
-1. リポジトリをフォーク
-2. 機能ブランチを作成 (`git checkout -b feature/your-change`)
-3. 変更をコミット (`git commit -m 'Add your change'`)
-4. ブランチをプッシュし、Pull Request を作成
-
-## 連絡先 / 公開サイト
-
-- GitHub: [https://github.com/watanabe3tipapa/ca-checker](https://github.com/watanabe3tipapa/ca-checker)
-- ランディングページ: [https://watanabe3tipapa.github.io/ca-checker/](https://watanabe3tipapa.github.io/ca-checker/)
-- 関連プロジェクト: [skills-seedling](https://github.com/watanabe3tipapa/skills-seedling) — AI コーディング支援のための SKILLS.md コレクション
-
 ## ライセンス
 
 MIT ライセンス — 詳細は [LICENSE](LICENSE) を参照してください。
