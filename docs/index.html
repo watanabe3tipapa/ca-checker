@@ -3,8 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CA Certificate Checker</title>
-<meta name="description" content="OS の信頼ストアにある X.509 証明書を検証する GPUI 製デスクトップダッシュボード兼 CLI。">
+<title>ca-checker — X.509 証明書を検証する GPUI ダッシュボード / CLI</title>
+<meta name="description" content="ca-checker は、OS の信頼ストアにある X.509 証明書を有効期限・署名アルゴリズム・信頼チェーン・失効から検証する GPUI 製デスクトップダッシュボード兼 CLI です。ルート CA の状態を一覧できます。">
+<meta name="theme-color" content="#00e5a8">
+<link rel="canonical" href="https://watanabe3tipapa.github.io/ca-checker/">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ca-checker">
+<meta property="og:title" content="ca-checker — X.509 証明書を検証する GPUI ダッシュボード / CLI">
+<meta property="og:description" content="OS の信頼ストアにある X.509 証明書を、有効期限・署名・信頼チェーン・失効から検証。ルート CA の状態をひと目で確認できる GPUI 製ダッシュボード兼 CLI です。">
+<meta property="og:url" content="https://watanabe3tipapa.github.io/ca-checker/">
+<meta property="og:image" content="https://watanabe3tipapa.github.io/ca-checker/og-image.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="ca-checker — CA Certificate Checker">
+<meta property="og:locale" content="ja_JP">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ca-checker — X.509 証明書を検証する GPUI ダッシュボード / CLI">
+<meta name="twitter:description" content="OS の信頼ストアにある X.509 証明書を、有効期限・署名・信頼チェーン・失効から検証。ルート CA の状態をひと目で確認できます。">
+<meta name="twitter:image" content="https://watanabe3tipapa.github.io/ca-checker/og-image.png">
+<meta name="twitter:image:alt" content="ca-checker — CA Certificate Checker">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&amp;family=Roboto+Mono:wght@400;700&amp;family=Noto+Sans+JP:wght@400;700&amp;display=swap" rel="stylesheet">
@@ -364,6 +385,14 @@ td code { white-space: nowrap; }
   padding: 18px;
 }
 
+.preview-figure { margin: 0; }
+
+.preview-caption {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
 .preview-bar {
   display: flex;
   align-items: center;
@@ -509,8 +538,9 @@ footer {
 
 a:focus-visible,
 button:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
+  outline: 3px solid var(--fg);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px var(--accent);
 }
 
 @media (max-width: 640px) {
@@ -631,7 +661,7 @@ button:focus-visible {
         </li>
         <li>
           <h3>この証明書は、失効していないか</h3>
-          <p>証明書が公開している CRL Distribution Point と OCSP Responder を使って失効状態を確認します。有効・失効・不明を区別し、取得できなかった理由も表示します。</p>
+          <p>証明書に記載された CRL Distribution Point と OCSP Responder を使って失効状態を確認します。有効・失効・不明を区別し、取得できなかった理由も表示します。</p>
         </li>
       </ol>
 
@@ -651,61 +681,64 @@ button:focus-visible {
       </div>
 
       <p class="intro" style="margin-top: 22px;">
-        <strong>できないこと:</strong> 秘密鍵の管理、証明書の発行、HSM / スマートカードの操作、CT ログの照会は行いません。また、失効確認は証明書が公開している CRL / OCSP エンドポイントに依存するため、ネットワークや提供元の状態によって「不明」になることがあります。ca-checker は専門的な PKI 運用を置き換えるものではなく、日々の確認を手早くするための補助ツールです。
+        <strong>できないこと:</strong> 秘密鍵の管理、証明書の発行、HSM / スマートカードの操作、CT ログの照会は行いません。また、失効確認は証明書に記載された CRL / OCSP エンドポイントに依存するため、ネットワークや提供元の状態によって「不明」になることがあります。ca-checker は専門的な PKI 運用を置き換えるものではなく、日々の確認を手早くするための補助ツールです。
       </p>
     </section>
 
     <section id="preview" aria-labelledby="preview-heading">
       <h2 id="preview-heading">ダッシュボード</h2>
       <p class="intro">起動すると OS の信頼ストアを読み込み、証明書ごとの状態を一覧化します。フィルタで絞り込み、行を選ぶと詳細と PEM を確認できます。</p>
-      <div class="preview" aria-label="ダッシュボードのイメージ">
-        <div class="preview-bar">
-          <span class="preview-brand">ca-checker</span>
-          <span>v0.1.1 · OS trust store</span>
-        </div>
-        <div class="preview-title">
-          <h3>CA Certificate Checker</h3>
-          <span class="mono">162 certificates · 42 anchors</span>
-        </div>
-        <div class="preview-stats">
-          <div class="preview-stat"><strong>162</strong><span>TOTAL</span></div>
-          <div class="preview-stat"><strong>150</strong><span>VALID</span></div>
-          <div class="preview-stat"><strong>8</strong><span>EXPIRING</span></div>
-          <div class="preview-stat"><strong>2</strong><span>EXPIRED</span></div>
-          <div class="preview-stat"><strong>4</strong><span>ISSUES</span></div>
-          <div class="preview-stat"><strong>96</strong><span>CA</span></div>
-        </div>
-        <div class="preview-viz" aria-label="ステータス分布のイメージ">
-          <div class="preview-viz-head">
-            <span>STATUS DISTRIBUTION</span>
-            <span>162 certificates</span>
+      <figure class="preview-figure">
+        <div class="preview" role="group" aria-label="ダッシュボードの画面イメージ">
+          <div class="preview-bar">
+            <span class="preview-brand">ca-checker</span>
+            <span>v0.1.1 · OS trust store</span>
           </div>
-          <div class="preview-track">
-            <span class="seg-valid" style="width:92.59%"></span>
-            <span class="seg-expiring" style="width:4.94%"></span>
-            <span class="seg-expired" style="width:1.23%"></span>
-            <span class="seg-issues" style="width:1.24%"></span>
+          <div class="preview-title">
+            <h3>CA Certificate Checker</h3>
+            <span class="mono">162 certificates · 42 anchors</span>
+          </div>
+          <div class="preview-stats">
+            <div class="preview-stat"><strong>162</strong><span>TOTAL</span></div>
+            <div class="preview-stat"><strong>150</strong><span>VALID</span></div>
+            <div class="preview-stat"><strong>8</strong><span>EXPIRING</span></div>
+            <div class="preview-stat"><strong>2</strong><span>EXPIRED</span></div>
+            <div class="preview-stat"><strong>2</strong><span>ISSUES</span></div>
+            <div class="preview-stat"><strong>96</strong><span>CA</span></div>
+          </div>
+          <div class="preview-viz" role="group" aria-label="ステータス分布のイメージ">
+            <div class="preview-viz-head">
+              <span>STATUS DISTRIBUTION</span>
+              <span>162 certificates</span>
+            </div>
+            <div class="preview-track">
+              <span class="seg-valid" style="width:92.59%"></span>
+              <span class="seg-expiring" style="width:4.94%"></span>
+              <span class="seg-expired" style="width:1.23%"></span>
+              <span class="seg-issues" style="width:1.24%"></span>
+            </div>
+          </div>
+          <div class="preview-row">
+            <span class="dot"></span>
+            <span class="preview-name"><strong>DigiCert Global Root G2</strong><small>DigiCert Inc</small></span>
+            <span class="preview-date">2038-01-15</span>
+            <span class="status valid">Valid</span>
+          </div>
+          <div class="preview-row">
+            <span class="dot amber"></span>
+            <span class="preview-name"><strong>Example Intermediate CA</strong><small>Example Trust Services</small></span>
+            <span class="preview-date">2026-11-08</span>
+            <span class="status expiring">Expiring soon</span>
+          </div>
+          <div class="preview-row">
+            <span class="dot red"></span>
+            <span class="preview-name"><strong>Legacy Root Authority</strong><small>Legacy CA</small></span>
+            <span class="preview-date">2024-06-30</span>
+            <span class="status expired">Expired</span>
           </div>
         </div>
-        <div class="preview-row">
-          <span class="dot"></span>
-          <span class="preview-name"><strong>DigiCert Global Root G2</strong><small>DigiCert Inc</small></span>
-          <span class="preview-date">2038-01-15</span>
-          <span class="status valid">Valid</span>
-        </div>
-        <div class="preview-row">
-          <span class="dot amber"></span>
-          <span class="preview-name"><strong>Example Intermediate CA</strong><small>Example Trust Services</small></span>
-          <span class="preview-date">2026-11-08</span>
-          <span class="status expiring">Expiring soon</span>
-        </div>
-        <div class="preview-row">
-          <span class="dot red"></span>
-          <span class="preview-name"><strong>Legacy Root Authority</strong><small>Legacy CA</small></span>
-          <span class="preview-date">2024-06-30</span>
-          <span class="status expired">Expired</span>
-        </div>
-      </div>
+        <figcaption class="preview-caption">画面イメージ（数値はサンプル）</figcaption>
+      </figure>
     </section>
 
     <section id="features" aria-labelledby="features-heading">
@@ -820,7 +853,7 @@ button:focus-visible {
           </thead>
           <tbody>
             <tr><td><span class="status valid">Valid</span></td><td>有効期限内で、チェーン検証に成功</td><td>はい</td></tr>
-            <tr><td><span class="status expiring">ExpiringSoon</span></td><td>警告日数以内に期限切れ（デフォルト 30 日）</td><td>はい</td></tr>
+            <tr><td><span class="status expiring">ExpiringSoon</span></td><td>警告日数以内に期限を迎える（既定 30 日）</td><td>はい</td></tr>
             <tr><td><span class="status expired">Expired</span></td><td>有効期限が切れている</td><td>いいえ</td></tr>
             <tr><td><span class="status expiring">NotYetValid</span></td><td>有効期間開始前</td><td>いいえ</td></tr>
             <tr><td><span class="status untrusted">UntrustedRoot</span></td><td>信頼チェーンを構築できない</td><td>いいえ</td></tr>
@@ -860,7 +893,7 @@ xychart-beta
     y-axis "証明書数" 0 --> 8
     bar [2, 1, 0, 4, 3, 1, 0, 2, 6, 1, 0, 0]
           </div>
-          <p>月ごとの期限切れ件数を表示します。警告日数以内の月はアンバー色で強調し、12か月より先の件数はパネル下部にまとめます。</p>
+          <p>月ごとに期限を迎える証明書の件数を表示します。警告日数以内の月はアンバー色で強調し、12か月より先の件数はパネル下部にまとめます。</p>
         </div>
       </div>
 
@@ -877,7 +910,7 @@ flowchart LR
     S -->|"Valid / ExpiringSoon"| OK["exit 0"]
     S -->|"Expired / Untrusted / ..."| NG["exit 1"]
         </div>
-        <p>ファイル入力とネットワーク入力は同じパーサに合流し、信頼アンカーとの照合を経て終了コードに落ちます。図の流れは CLI の <code>verify</code> と GUI の検証で共通です。</p>
+        <p>ファイル入力とネットワーク入力は同じパーサに合流し、信頼アンカーとの照合を経て検証結果になります。CLI ではその結果が終了コードに、GUI では一覧のステータスになります。</p>
       </div>
 
       <div class="viz-card">
@@ -911,7 +944,7 @@ flowchart TB
         <p>取得（<code>cert_infra</code>）と検証（<code>cert_core</code>）を分離し、GUI と CLI が同じ検証エンジンを共有します。図は <a href="https://github.com/oh-my-mermaid/oh-my-mermaid">oh-my-mermaid</a> と同じ「関心ごとに Mermaid で説明する」アプローチで構成しています。</p>
       </div>
 
-      <p class="viz-note mono">図の数値はサンプルです。実際の統計は GUI が OS 信頼ストアから起動時に集計します。Mermaid は CDN から読み込むため、オフラインでは図が表示されません。</p>
+      <p class="viz-note mono">図の数値はサンプルです。実際の統計は GUI が OS 信頼ストアから起動時に集計します。Mermaid は CDN から読み込むため、オフラインでは図が表示されず、グラフ定義のテキストがそのまま残ります。</p>
     </section>
 
     <section id="usage" aria-labelledby="usage-heading">
@@ -966,7 +999,7 @@ cargo run -p cert_cli -- fetch example.com --json</code></pre>
 
       <div class="tech">
         <h3>コマンドの処理内容</h3>
-        <p>各コマンドは同じ <code>cert_core</code> のパーサと検証エンジンを使います。入力の取得方法だけが異なります。</p>
+        <p>各コマンドは同じ <code>cert_core</code> のパーサを使い、検証を行うコマンドは共通の検証エンジンを使います。異なるのは入力の取得方法です。</p>
         <div class="table-wrap">
           <table>
             <thead>
@@ -997,7 +1030,7 @@ cargo run -p cert_cli -- fetch example.com --json</code></pre>
           <li>SNI には <code>--host</code> の値をそのまま使用します（IP リテラルの場合は SNI を送信しません）。</li>
           <li><strong>取得時点では証明書を検証しません。</strong> 自己署名・期限切れ・未信頼の証明書でも取得でき、信頼判定は <code>verify</code> のチェーン検証で行います。</li>
           <li>サーバーが中間 CA を送らない場合は <code>--chain intermediate.pem</code> で補完できます。</li>
-          <li>クライアント証明書、ALPN、CRL / OCSP による失効確認には未対応です。</li>
+          <li>クライアント証明書と ALPN には未対応です。失効確認は <code>fetch</code> 単体では行わず、<code>verify --revocation</code> または設定ファイルで有効にします。</li>
         </ul>
         <pre><code># 取得と検証を一度に実行
 cargo run -p cert_cli -- verify --host example.com --json
@@ -1032,7 +1065,7 @@ cargo run -p cert_cli -- fetch example.com --json</code></pre>
 │   ├── cert_cli/           # CLI バイナリ (cert-cli)
 │   └── app/                # GPUI アプリケーション (ca-checker)
 ├── docs/                   # GitHub Pages ランディングページ
-└── .github/workflows/      # Pages デプロイ</code></pre>
+└── .github/workflows/      # CI / Pages デプロイ</code></pre>
     </section>
 
     <section id="limits" aria-labelledby="limits-heading">
