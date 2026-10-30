@@ -5,6 +5,7 @@
 ca-checker は、OS の信頼ストアにある **X.509 証明書**を、有効期限・署名アルゴリズム・信頼チェーンから検証する GPUI 製デスクトップダッシュボード兼 CLI ツールです。ルート CA の状態を一覧し、期限切れや弱い署名、未信頼の証明書をひと目で見つけられます。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/watanabe3tipapa/ca-checker/actions/workflows/ci.yml/badge.svg)](https://github.com/watanabe3tipapa/ca-checker/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-v0.1.1-blue.svg)](https://github.com/watanabe3tipapa/ca-checker/releases)
 [![Rust](https://img.shields.io/badge/Rust-1.85%2B-000000.svg?logo=rust)](https://www.rust-lang.org/)
 [![GPUI](https://img.shields.io/badge/GPUI-0.2.2-00e5a8.svg)](https://crates.io/crates/gpui)

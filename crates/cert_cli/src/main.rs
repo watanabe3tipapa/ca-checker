@@ -13,7 +13,7 @@ use cert_infra::{
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "cert-cli", about = "X.509 CA certificate checker")]
+#[command(name = "cert-cli", version, about = "X.509 CA certificate checker")]
 struct Cli {
     #[arg(long, global = true, value_name = "PATH")]
     config: Option<PathBuf>,

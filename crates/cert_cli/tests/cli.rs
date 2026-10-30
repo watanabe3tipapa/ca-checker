@@ -194,3 +194,16 @@ fn verify_accepts_network_target() {
 
     server.join().unwrap();
 }
+
+#[test]
+fn prints_package_version() {
+    Command::cargo_bin("cert-cli")
+        .unwrap()
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "cert-cli {}",
+            env!("CARGO_PKG_VERSION")
+        )));
+}
